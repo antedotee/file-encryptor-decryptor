@@ -1,36 +1,54 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# OS File Encryptor/Decryptor (Next.js + Node on Vercel)
 
-## Getting Started
+Encrypt any file into a portable `.osenc` container and decrypt it back — built as an **Operating Systems**-themed project.
 
-First, run the development server:
+## What you built (OS perspective)
+
+- **File system APIs:** The browser can only read files you explicitly select (sandboxed access vs OS syscalls).
+- **Processes & isolation:** “Server mode” runs as an isolated Node.js serverless function on Vercel (constrained process).
+- **Memory management:** Encryption is byte-buffer based; larger files mean more RAM/GC pressure.
+- **Security primitives:** Uses **AES-256-GCM** (confidentiality + integrity) and **PBKDF2-SHA256** (password → key).
+
+More details: `docs/OS_CONCEPTS.md`.
+
+## Features
+
+- Encrypt / decrypt in **Local mode** (in your browser, no upload)
+- Encrypt / decrypt in **Server mode** (Node.js API routes on Vercel) for small files
+- Portable binary container format: `.osenc` (spec: `docs/OSENC_FORMAT.md`)
+
+## Tech stack
+
+- Next.js (App Router) + TypeScript + Tailwind
+- Node.js crypto (server mode)
+- WebCrypto (local/browser mode)
+
+## Run locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deploy (Vercel)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Option A: Vercel UI (recommended)
 
-## Learn More
+1. Push this repo to GitHub.
+2. Import it in Vercel.
+3. Deploy (Preview or Production).
 
-To learn more about Next.js, take a look at the following resources:
+### Option B: Vercel CLI (preview)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npx vercel deploy -y
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Notes / limitations
 
-## Deploy on Vercel
+- Server mode enforces a small file limit (serverless/runtime constraints).
+- No files are stored on the server; everything is processed in-memory.
+- If you forget the password, encrypted files can’t be recovered.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
