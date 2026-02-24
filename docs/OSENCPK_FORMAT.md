@@ -19,18 +19,48 @@ The app stores public-key encrypted files in a JSON-based container called `.ose
 │  ENCRYPTION (sender side)                                   │
 │  1. Generate random 256-bit AES key                         │
 │  2. Encrypt FILE with AES-GCM → ciphertext + tag            │
-│  3. Encrypt AES key with recipient's RSA PUBLIC KEY         │
-│  4. Package: wrappedKey + iv + ciphertext → .osencpk        │
+│  3. For EACH recipient: encrypt AES key with their PUBLIC KEY│
+│  4. Package: wrappedKeys[] + iv + ciphertext → .osencpk     │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
 │  DECRYPTION (recipient side)                                │
-│  1. Decrypt wrappedKey with RSA PRIVATE KEY → AES key       │
-│  2. Decrypt ciphertext with AES key → original file         │
+│  1. Try each wrappedKey with RSA PRIVATE KEY                │
+│  2. If one succeeds → get AES key                           │
+│  3. Decrypt ciphertext with AES key → original file         │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## JSON structure (v1)
+## JSON structure (v2 - current, supports multiple recipients)
+
+```json
+{
+  "v": 2,
+  "iv": "<base64>",
+  "wrappedKeys": [
+    { "label": "Alice's laptop", "wrappedKey": "<base64>" },
+    { "label": "Bob's phone", "wrappedKey": "<base64>" }
+  ],
+  "ciphertext": "<base64>",
+  "filename": "original-name.txt",
+  "mime": "text/plain",
+  "originalSize": 12345
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `v` | Version number (2 for multi-recipient) |
+| `iv` | 12-byte initialization vector (base64) |
+| `wrappedKeys` | Array of wrapped AES keys, one per recipient |
+| `wrappedKeys[].label` | Friendly name of the recipient |
+| `wrappedKeys[].wrappedKey` | AES-256 key encrypted with that recipient's RSA public key (base64) |
+| `ciphertext` | File encrypted with AES-256-GCM, includes auth tag (base64) |
+| `filename` | Original filename (UTF-8) |
+| `mime` | MIME type of original file |
+| `originalSize` | Size of original file in bytes |
+
+## JSON structure (v1 - legacy, single recipient)
 
 ```json
 {
@@ -44,15 +74,7 @@ The app stores public-key encrypted files in a JSON-based container called `.ose
 }
 ```
 
-| Field | Description |
-|-------|-------------|
-| `v` | Version number (currently 1) |
-| `iv` | 12-byte initialization vector (base64) |
-| `wrappedKey` | AES-256 key encrypted with recipient's RSA public key (base64) |
-| `ciphertext` | File encrypted with AES-256-GCM, includes auth tag (base64) |
-| `filename` | Original filename (UTF-8) |
-| `mime` | MIME type of original file |
-| `originalSize` | Size of original file in bytes |
+The decoder handles both v1 and v2 formats automatically.
 
 ## Key storage (browser localStorage)
 

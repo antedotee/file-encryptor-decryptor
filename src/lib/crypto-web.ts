@@ -185,16 +185,17 @@ export async function importPrivateKeyJwkWeb(jwk: JsonWebKey): Promise<CryptoKey
 
 export type PublicKeyCiphertextWeb = {
   iv: Uint8Array
-  wrappedKey: Uint8Array
+  wrappedKeys: { label: string; wrappedKey: Uint8Array }[]
   ciphertextWithTag: Uint8Array
 }
 
 export async function encryptForPublicKeyWeb(params: {
   plaintext: Uint8Array
-  recipientPublicKey: CryptoKey
+  recipients: { label: string; publicKey: CryptoKey }[]
 }): Promise<PublicKeyCiphertextWeb> {
   const c = requireWebCrypto() as any
 
+  // Generate a single random AES key for the file
   const aesKey = await c.subtle.generateKey(
     {
       name: "AES-GCM",
@@ -204,6 +205,7 @@ export async function encryptForPublicKeyWeb(params: {
     ["encrypt", "decrypt"]
   )
 
+  // Encrypt the file with AES-GCM
   const iv = randomBytesWeb(IV_BYTES)
   const ciphertext = await c.subtle.encrypt(
     { name: "AES-GCM", iv },
@@ -212,27 +214,58 @@ export async function encryptForPublicKeyWeb(params: {
   )
   const ciphertextWithTag = new Uint8Array(ciphertext)
 
+  // Export the AES key and wrap it for each recipient
   const rawAesKey = new Uint8Array(await c.subtle.exportKey("raw", aesKey))
-  const wrappedKeyBuf = await c.subtle.encrypt({ name: "RSA-OAEP" }, params.recipientPublicKey, rawAesKey)
-  const wrappedKey = new Uint8Array(wrappedKeyBuf)
+  
+  const wrappedKeys: { label: string; wrappedKey: Uint8Array }[] = []
+  for (const recipient of params.recipients) {
+    const wrappedKeyBuf = await c.subtle.encrypt(
+      { name: "RSA-OAEP" },
+      recipient.publicKey,
+      rawAesKey
+    )
+    wrappedKeys.push({
+      label: recipient.label,
+      wrappedKey: new Uint8Array(wrappedKeyBuf),
+    })
+  }
 
-  return { iv, wrappedKey, ciphertextWithTag }
+  return { iv, wrappedKeys, ciphertextWithTag }
 }
 
 export async function decryptForPrivateKeyWeb(params: {
   iv: Uint8Array
-  wrappedKey: Uint8Array
+  wrappedKeys: { label: string; wrappedKey: Uint8Array }[]
   ciphertextWithTag: Uint8Array
   recipientPrivateKey: CryptoKey
 }): Promise<Uint8Array> {
   const c = requireWebCrypto() as any
 
-  const rawAesKeyBuf = await c.subtle.decrypt(
-    { name: "RSA-OAEP" },
-    params.recipientPrivateKey,
-    params.wrappedKey as any
-  )
-  const rawAesKey = new Uint8Array(rawAesKeyBuf)
+  // Try each wrapped key until one works with our private key
+  let rawAesKey: Uint8Array | null = null
+  let lastError: Error | null = null
+
+  for (const wk of params.wrappedKeys) {
+    try {
+      const rawAesKeyBuf = await c.subtle.decrypt(
+        { name: "RSA-OAEP" },
+        params.recipientPrivateKey,
+        wk.wrappedKey as any
+      )
+      rawAesKey = new Uint8Array(rawAesKeyBuf)
+      break // Successfully decrypted
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error("Decryption failed")
+      // Try next wrapped key
+    }
+  }
+
+  if (!rawAesKey) {
+    throw new Error(
+      "Could not decrypt: your private key doesn't match any of the recipients. " +
+      (lastError ? lastError.message : "")
+    )
+  }
 
   const aesKey = await c.subtle.importKey(
     "raw",

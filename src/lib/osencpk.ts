@@ -2,7 +2,8 @@
 
 import { utf8Decode, utf8Encode } from "@/lib/bytes"
 
-export type OsencPkEnvelope = {
+// v1: single recipient (legacy)
+export type OsencPkEnvelopeV1 = {
   v: 1
   iv: string
   wrappedKey: string
@@ -11,6 +12,24 @@ export type OsencPkEnvelope = {
   mime: string
   originalSize: number
 }
+
+// v2: multiple recipients
+export type WrappedKeyEntry = {
+  label: string
+  wrappedKey: string
+}
+
+export type OsencPkEnvelopeV2 = {
+  v: 2
+  iv: string
+  wrappedKeys: WrappedKeyEntry[]
+  ciphertext: string
+  filename: string
+  mime: string
+  originalSize: number
+}
+
+export type OsencPkEnvelope = OsencPkEnvelopeV1 | OsencPkEnvelopeV2
 
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = ""
@@ -31,16 +50,19 @@ function base64ToBytes(b64: string): Uint8Array {
 
 export function encodeOsencPk(params: {
   iv: Uint8Array
-  wrappedKey: Uint8Array
+  wrappedKeys: { label: string; wrappedKey: Uint8Array }[]
   ciphertextWithTag: Uint8Array
   filename: string
   mime: string
   originalSize: number
 }): Uint8Array {
-  const envelope: OsencPkEnvelope = {
-    v: 1,
+  const envelope: OsencPkEnvelopeV2 = {
+    v: 2,
     iv: bytesToBase64(params.iv),
-    wrappedKey: bytesToBase64(params.wrappedKey),
+    wrappedKeys: params.wrappedKeys.map((wk) => ({
+      label: wk.label,
+      wrappedKey: bytesToBase64(wk.wrappedKey),
+    })),
     ciphertext: bytesToBase64(params.ciphertextWithTag),
     filename: params.filename,
     mime: params.mime,
@@ -52,7 +74,7 @@ export function encodeOsencPk(params: {
 
 export function decodeOsencPk(bytes: Uint8Array): {
   iv: Uint8Array
-  wrappedKey: Uint8Array
+  wrappedKeys: { label: string; wrappedKey: Uint8Array }[]
   ciphertextWithTag: Uint8Array
   filename: string
   mime: string
@@ -65,14 +87,38 @@ export function decodeOsencPk(bytes: Uint8Array): {
   } catch {
     throw new Error("Invalid OSENCPK: not valid JSON")
   }
-  if (parsed.v !== 1) throw new Error("Invalid OSENCPK: unsupported version")
-  if (!parsed.iv || !parsed.wrappedKey || !parsed.ciphertext) {
+  
+  if (parsed.v !== 1 && parsed.v !== 2) {
+    throw new Error("Invalid OSENCPK: unsupported version")
+  }
+  
+  if (!parsed.iv || !parsed.ciphertext) {
     throw new Error("Invalid OSENCPK: missing fields")
+  }
+
+  // Handle v1 (single recipient) and v2 (multiple recipients)
+  let wrappedKeys: { label: string; wrappedKey: Uint8Array }[]
+  
+  if (parsed.v === 1) {
+    // Legacy v1 format with single wrappedKey
+    if (!parsed.wrappedKey) {
+      throw new Error("Invalid OSENCPK v1: missing wrappedKey")
+    }
+    wrappedKeys = [{ label: "Recipient", wrappedKey: base64ToBytes(parsed.wrappedKey) }]
+  } else {
+    // v2 format with multiple wrappedKeys
+    if (!parsed.wrappedKeys || !Array.isArray(parsed.wrappedKeys) || parsed.wrappedKeys.length === 0) {
+      throw new Error("Invalid OSENCPK v2: missing or empty wrappedKeys")
+    }
+    wrappedKeys = parsed.wrappedKeys.map((wk) => ({
+      label: wk.label || "Unknown",
+      wrappedKey: base64ToBytes(wk.wrappedKey),
+    }))
   }
 
   return {
     iv: base64ToBytes(parsed.iv),
-    wrappedKey: base64ToBytes(parsed.wrappedKey),
+    wrappedKeys,
     ciphertextWithTag: base64ToBytes(parsed.ciphertext),
     filename: parsed.filename || "file",
     mime: parsed.mime || "application/octet-stream",
