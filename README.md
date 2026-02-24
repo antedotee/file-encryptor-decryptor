@@ -16,6 +16,10 @@ More details: `docs/OS_CONCEPTS.md`.
 - Encrypt / decrypt in **Local mode** (in your browser, no upload)
 - Encrypt / decrypt in **Server mode** (Node.js API routes on Vercel) for small files
 - Portable binary container format: `.osenc` (spec: `docs/OSENC_FORMAT.md`)
+- **Public-key encryption** (`.osencpk`): Encrypt files for a specific recipient without sharing passwords
+  - Generate RSA-4096 keypairs in your browser
+  - Share your public key; keep your private key local
+  - Hybrid encryption: RSA-OAEP wraps a random AES-256-GCM key
 
 ## Tech stack
 

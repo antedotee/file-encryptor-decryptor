@@ -43,7 +43,24 @@ Talking points:
 - Why integrity matters (detecting modified ciphertext).
 - Defense in depth: OS permissions + encryption + app sandboxing.
 
-## 5) Practical constraints (real-world OS relevance)
+## 5) Public-key cryptography & key management
+
+The project also supports **asymmetric (public-key) encryption** using RSA-OAEP + AES-GCM hybrid encryption.
+
+How it works:
+- Each device generates an RSA-4096 keypair (public + private key)
+- The **public key** is shared openly (like an address others can send to)
+- The **private key** never leaves the device (stored in browser localStorage)
+- Files are encrypted with a random AES key, then the AES key is encrypted with the recipient's public key
+
+Talking points:
+- **Key exchange problem**: How do two parties agree on a secret key without an eavesdropper learning it? Public-key crypto solves this.
+- **Trust and identity**: Managing whose public keys you trust is a fundamental OS/security concept.
+- **Hybrid encryption**: RSA is slow for large data; AES is fast. Combining them gets the best of both.
+- **Key storage**: OS-level security (browser sandboxing, localStorage isolation) protects the private key.
+- **Non-repudiation**: Unlike passwords, public keys can prove identity (basis for digital signatures).
+
+## 6) Practical constraints (real-world OS relevance)
 
 - Local mode is “offline first” — avoids network transmission entirely.
 - Server mode demonstrates platform limits (runtime constraints) — similar to resource quotas and scheduling.

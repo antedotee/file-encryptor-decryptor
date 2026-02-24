@@ -24,6 +24,12 @@ export default function Home() {
             Decrypt a file
           </Link>
           <Link
+            href="/keys"
+            className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:hover:bg-white/5"
+          >
+            Key Management
+          </Link>
+          <Link
             href="/os"
             className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:hover:bg-white/5"
           >
