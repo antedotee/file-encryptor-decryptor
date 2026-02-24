@@ -107,3 +107,149 @@ export async function encryptWithNewSaltIvWeb(params: {
   })
   return { salt, iv, iterations, ciphertextWithTag }
 }
+
+// Public-key (asymmetric) helpers for browser-only hybrid encryption.
+// These are used for: generate device keypair, export/import keys, and
+// encrypting a random AES key for a recipient's public key.
+
+export async function generateRsaKeyPairWeb(): Promise<CryptoKeyPair> {
+  const c = requireWebCrypto()
+  return c.subtle.generateKey(
+    {
+      name: "RSA-OAEP",
+      modulusLength: 4096,
+      publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+      hash: "SHA-256",
+    },
+    true,
+    ["encrypt", "decrypt"]
+  )
+}
+
+function bytesToBase64Web(bytes: Uint8Array): string {
+  let binary = ""
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return globalThis.btoa(binary)
+}
+
+function base64ToBytesWeb(base64: string): Uint8Array {
+  const binary = globalThis.atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return bytes
+}
+
+export async function exportPublicKeySpkiBase64Web(publicKey: CryptoKey): Promise<string> {
+  const c = requireWebCrypto()
+  const spki = await c.subtle.exportKey("spki", publicKey)
+  return bytesToBase64Web(new Uint8Array(spki))
+}
+
+export async function importPublicKeySpkiBase64Web(base64: string): Promise<CryptoKey> {
+  const c = requireWebCrypto()
+  const bytes = base64ToBytesWeb(base64)
+  return c.subtle.importKey(
+    "spki",
+    toArrayBuffer(bytes),
+    {
+      name: "RSA-OAEP",
+      hash: "SHA-256",
+    },
+    true,
+    ["encrypt"]
+  )
+}
+
+export async function exportPrivateKeyJwkWeb(privateKey: CryptoKey): Promise<JsonWebKey> {
+  const c = requireWebCrypto()
+  return c.subtle.exportKey("jwk", privateKey)
+}
+
+export async function importPrivateKeyJwkWeb(jwk: JsonWebKey): Promise<CryptoKey> {
+  const c = requireWebCrypto()
+  return c.subtle.importKey(
+    "jwk",
+    jwk,
+    {
+      name: "RSA-OAEP",
+      hash: "SHA-256",
+    },
+    true,
+    ["decrypt"]
+  )
+}
+
+export type PublicKeyCiphertextWeb = {
+  iv: Uint8Array
+  wrappedKey: Uint8Array
+  ciphertextWithTag: Uint8Array
+}
+
+export async function encryptForPublicKeyWeb(params: {
+  plaintext: Uint8Array
+  recipientPublicKey: CryptoKey
+}): Promise<PublicKeyCiphertextWeb> {
+  const c = requireWebCrypto() as any
+
+  const aesKey = await c.subtle.generateKey(
+    {
+      name: "AES-GCM",
+      length: 256,
+    },
+    true,
+    ["encrypt", "decrypt"]
+  )
+
+  const iv = randomBytesWeb(IV_BYTES)
+  const ciphertext = await c.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    aesKey,
+    params.plaintext as any
+  )
+  const ciphertextWithTag = new Uint8Array(ciphertext)
+
+  const rawAesKey = new Uint8Array(await c.subtle.exportKey("raw", aesKey))
+  const wrappedKeyBuf = await c.subtle.encrypt({ name: "RSA-OAEP" }, params.recipientPublicKey, rawAesKey)
+  const wrappedKey = new Uint8Array(wrappedKeyBuf)
+
+  return { iv, wrappedKey, ciphertextWithTag }
+}
+
+export async function decryptForPrivateKeyWeb(params: {
+  iv: Uint8Array
+  wrappedKey: Uint8Array
+  ciphertextWithTag: Uint8Array
+  recipientPrivateKey: CryptoKey
+}): Promise<Uint8Array> {
+  const c = requireWebCrypto() as any
+
+  const rawAesKeyBuf = await c.subtle.decrypt(
+    { name: "RSA-OAEP" },
+    params.recipientPrivateKey,
+    params.wrappedKey as any
+  )
+  const rawAesKey = new Uint8Array(rawAesKeyBuf)
+
+  const aesKey = await c.subtle.importKey(
+    "raw",
+    rawAesKey,
+    {
+      name: "AES-GCM",
+      length: 256,
+    },
+    false,
+    ["decrypt"]
+  )
+
+  const plaintext = await c.subtle.decrypt(
+    { name: "AES-GCM", iv: params.iv },
+    aesKey,
+    params.ciphertextWithTag as any
+  )
+
+  return new Uint8Array(plaintext)
+}

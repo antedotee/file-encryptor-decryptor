@@ -1,10 +1,11 @@
 "use client"
 
 import { toArrayBuffer } from "@/lib/bytes"
-import { decryptBytesWeb } from "@/lib/crypto-web"
+import { decryptBytesWeb, decryptForPrivateKeyWeb, importPrivateKeyJwkWeb } from "@/lib/crypto-web"
 import { downloadBlob } from "@/lib/download"
 import { formatBytes } from "@/lib/format"
 import { decodeOsenc } from "@/lib/osenc"
+import { decodeOsencPk } from "@/lib/osencpk"
 import { useMemo, useState } from "react"
 
 const MAX_SERVER_FILE_BYTES = 4_500_000
@@ -29,12 +30,45 @@ export default function DecryptClient() {
   async function onDecrypt() {
     setError(null)
     if (!file) return setError("Pick a .osenc file to decrypt.")
-    if (password.trim().length < 8) return setError("Use the same password (min 8 chars).")
+    const isPkFile = file.name.endsWith(".osencpk")
+    if (!isPkFile && password.trim().length < 8) {
+      return setError("Use the same password (min 8 chars).")
+    }
 
     setBusy(true)
     try {
-      if (mode === "local") {
-        const bytes = new Uint8Array(await file.arrayBuffer())
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      const isPk = isPkFile || (() => {
+        // quick heuristic: .osencpk is JSON, .osenc is binary
+        const firstByte = bytes[0]
+        return firstByte === 0x7b || firstByte === 0x5b // '{' or '['
+      })()
+
+      if (isPk) {
+        if (mode !== "local") {
+          throw new Error("Public-key encrypted files can only be decrypted in Local (browser) mode.")
+        }
+
+        const privateJwkJson = typeof window !== "undefined" ? window.localStorage.getItem("osencpk_device_private_jwk") : null
+        if (!privateJwkJson) {
+          throw new Error("No private key found. Generate or import your keypair on the Key Management page first.")
+        }
+
+        const privateJwk = JSON.parse(privateJwkJson) as JsonWebKey
+        const privateKey = await importPrivateKeyJwkWeb(privateJwk)
+
+        const pkEnvelope = decodeOsencPk(bytes)
+        const plaintext = await decryptForPrivateKeyWeb({
+          iv: pkEnvelope.iv,
+          wrappedKey: pkEnvelope.wrappedKey,
+          ciphertextWithTag: pkEnvelope.ciphertextWithTag,
+          recipientPrivateKey: privateKey,
+        })
+
+        const outName = pkEnvelope.filename || "decrypted.bin"
+        const mime = pkEnvelope.mime || "application/octet-stream"
+        downloadBlob(new Blob([toArrayBuffer(plaintext)], { type: mime }), outName)
+      } else if (mode === "local") {
         const envelope = decodeOsenc(bytes)
         const plaintext = await decryptBytesWeb({
           ciphertextWithTag: envelope.ciphertextWithTag,
