@@ -31,7 +31,7 @@ export default function EncryptClient() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [contacts, setContacts] = useState<PublicKeyContact[]>([])
-  const [selectedContactId, setSelectedContactId] = useState<string>("")
+  const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -40,7 +40,6 @@ export default function EncryptClient() {
       try {
         const parsed = JSON.parse(raw) as PublicKeyContact[]
         setContacts(parsed)
-        if (parsed.length > 0) setSelectedContactId(parsed[0].id)
       } catch {
         // ignore malformed local storage
       }
@@ -71,8 +70,8 @@ export default function EncryptClient() {
       if (!contacts.length) {
         return setError("Add at least one recipient public key on the Key Management page first.")
       }
-      if (!selectedContactId) {
-        return setError("Choose a recipient to encrypt for.")
+      if (selectedContactIds.size === 0) {
+        return setError("Select at least one recipient to encrypt for.")
       }
     }
 
@@ -110,19 +109,27 @@ export default function EncryptClient() {
           downloadBlob(blob, name)
         }
       } else {
-        const contact = contacts.find((c) => c.id === selectedContactId)
-        if (!contact) throw new Error("Selected recipient not found.")
+        // Public-key encryption for multiple recipients
+        const selectedContacts = contacts.filter((c) => selectedContactIds.has(c.id))
+        if (selectedContacts.length === 0) throw new Error("No recipients selected.")
 
         const bytes = new Uint8Array(await file.arrayBuffer())
-        const recipientPublicKey = await importPublicKeySpkiBase64Web(contact.publicKeyBase64)
-        const { iv, wrappedKey, ciphertextWithTag } = await encryptForPublicKeyWeb({
+        
+        // Import all recipient public keys
+        const recipients: { label: string; publicKey: CryptoKey }[] = []
+        for (const contact of selectedContacts) {
+          const publicKey = await importPublicKeySpkiBase64Web(contact.publicKeyBase64)
+          recipients.push({ label: contact.label, publicKey })
+        }
+
+        const { iv, wrappedKeys, ciphertextWithTag } = await encryptForPublicKeyWeb({
           plaintext: bytes,
-          recipientPublicKey,
+          recipients,
         })
 
         const osencPkBytes = encodeOsencPk({
           iv,
-          wrappedKey,
+          wrappedKeys,
           ciphertextWithTag,
           originalSize: file.size,
           filename: file.name,
@@ -158,19 +165,21 @@ export default function EncryptClient() {
           ) : null}
         </label>
 
-        <label className="space-y-2">
-          <div className="text-sm font-medium">Password</div>
-          <input
-            type="password"
-            className="block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-black"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="At least 8 characters"
-          />
-          <div className="text-xs text-zinc-600 dark:text-zinc-400">
-            Password is used to derive a key (PBKDF2). It is not stored.
-          </div>
-        </label>
+        {encryptionKind === "password" ? (
+          <label className="space-y-2">
+            <div className="text-sm font-medium">Password</div>
+            <input
+              type="password"
+              className="block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-black"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="At least 8 characters"
+            />
+            <div className="text-xs text-zinc-600 dark:text-zinc-400">
+              Password is used to derive a key (PBKDF2). It is not stored.
+            </div>
+          </label>
+        ) : null}
       </div>
 
       <div className="mt-5 flex flex-wrap items-center gap-3">
@@ -191,34 +200,43 @@ export default function EncryptClient() {
           onClick={() => setEncryptionKind("publicKey")}
           className={`rounded-full px-3 py-1 text-sm ${
             encryptionKind === "publicKey"
-              ? "bg-zinc-950 text-white dark:bg:white dark:text-black"
-              : "border border-zinc-200 bg:white hover:bg-zinc-50 dark:border:white/10 dark:bg-zinc-950 dark:hover:bg-white/5"
+              ? "bg-zinc-950 text-white dark:bg-white dark:text-black"
+              : "border border-zinc-200 bg-white hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:hover:bg-white/5"
           }`}
         >
-          Public key (specific device)
+          Public key (no password needed)
         </button>
       </div>
 
       {encryptionKind === "publicKey" ? (
         <div className="mt-4 space-y-2">
-          <div className="text-sm font-medium">Recipient</div>
+          <div className="text-sm font-medium">Recipients (select one or more)</div>
           {contacts.length === 0 ? (
             <div className="text-xs text-zinc-600 dark:text-zinc-400">
-              No recipients configured yet. Generate your keypair and add contacts on the Key Management page first.
+              No recipients configured yet. Add contacts on the Key Management page first.
             </div>
           ) : (
-            <select
-              className="block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-black"
-              value={selectedContactId}
-              onChange={(e) => setSelectedContactId(e.target.value)}
-              aria-label="Recipient public key"
-            >
+            <div className="space-y-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-white/10 dark:bg-zinc-900">
               {contacts.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
+                <label key={c.id} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedContactIds.has(c.id)}
+                    onChange={(e) => {
+                      const next = new Set(selectedContactIds)
+                      if (e.target.checked) {
+                        next.add(c.id)
+                      } else {
+                        next.delete(c.id)
+                      }
+                      setSelectedContactIds(next)
+                    }}
+                    className="h-4 w-4 rounded border-zinc-300 text-zinc-950 focus:ring-zinc-950 dark:border-zinc-600"
+                  />
+                  <span className="text-sm text-zinc-800 dark:text-zinc-200">{c.label}</span>
+                </label>
               ))}
-            </select>
+            </div>
           )}
           <div className="text-xs text-zinc-600 dark:text-zinc-400">
             File will be encrypted so only the holder of the corresponding private key can decrypt it, in their browser.

@@ -60,7 +60,7 @@ export default function DecryptClient() {
         const pkEnvelope = decodeOsencPk(bytes)
         const plaintext = await decryptForPrivateKeyWeb({
           iv: pkEnvelope.iv,
-          wrappedKey: pkEnvelope.wrappedKey,
+          wrappedKeys: pkEnvelope.wrappedKeys,
           ciphertextWithTag: pkEnvelope.ciphertextWithTag,
           recipientPrivateKey: privateKey,
         })
