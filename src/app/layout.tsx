@@ -28,9 +28,6 @@ export default function RootLayout({
                 <Link className="hover:text-zinc-950 dark:hover:text-white" href="/decrypt">
                   Decrypt
                 </Link>
-                <Link className="hover:text-zinc-950 dark:hover:text-white" href="/os">
-                  OS Concepts
-                </Link>
               </nav>
             </div>
           </header>
